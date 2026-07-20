@@ -1,11 +1,14 @@
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const { Pool } = require('pg');
+const { initIO } = require('./src/socket');
 
 const app = express();
+const server = http.createServer(app);
 
-app.use(cors());
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 app.use('/api/rooms', require('./routes/rooms'));
@@ -14,6 +17,7 @@ app.use('/api/checkout', require('./routes/checkout'));
 app.use('/api/folios', require('./routes/folios'));
 app.use('/api/payments', require('./routes/payments'));
 app.use('/api/invoices', require('./routes/invoices'));
+app.use('/webhook', require('./src/routes/webhooks'));
 
 app.get('/', (req, res) => {
   res.json({ service: 'Front Office', status: 'running', port: process.env.PORT });
@@ -38,7 +42,9 @@ const start = async () => {
     await pool.end();
     console.log('PostgreSQL connecté - Front Office');
 
-    app.listen(PORT, () => {
+    initIO(server);
+
+    server.listen(PORT, () => {
       console.log(`Front Office service démarré sur le port ${PORT}`);
     });
   } catch (err) {

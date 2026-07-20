@@ -1,4 +1,5 @@
 const { eq, and, asc } = require('drizzle-orm');
+const { updateRoomStatusByNumero } = require('../src/services/housekeepingClient');
 const db = require('../config/database');
 const roomsTable = require('../schema/rooms');
 
@@ -80,27 +81,74 @@ exports.updateRoomStatus = async (req, res) => {
       }
     }
 
-    const [updated] = await db
-      .update(roomsTable)
-      .set({
-        housekeepingStatus,
-        blockReason: housekeepingStatus === 'bloquee' ? blockReason : null,
-        updatedAt: new Date()
-      })
-      .where(eq(roomsTable.id, roomId))
-      .returning();
+    const authToken = req.headers.authorization || req.headers.Authorization;
+    const payload = await updateRoomStatusByNumero(
+      existing.roomNumber,
+      housekeepingStatus,
+      housekeepingStatus === 'bloquee' ? blockReason : null,
+      authToken
+    );
 
-    res.json({
-      message: 'Statut mis à jour',
-      room: {
-        id: updated.id,
-        roomNumber: updated.roomNumber,
-        housekeepingStatus: updated.housekeepingStatus,
-        blockReason: updated.blockReason
-      }
-    });
+    const room = {
+      id: existing.id || payload._id || payload.id || null,
+      roomNumber: existing.roomNumber || payload.numero || payload.roomNumber || null,
+      housekeepingStatus: payload.statut || payload.housekeepingStatus || housekeepingStatus,
+      blockReason: payload.motifBlocage || payload.blockReason || (housekeepingStatus === 'bloquee' ? blockReason : null)
+    };
+
+    return res.json({ message: 'Statut mis à jour', room });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = err?.status || 502;
+    const message = err instanceof Error ? err.message : 'Erreur interne du serveur';
+    return res.status(status).json({ error: message });
+  }
+};
+
+exports.updateStatusByNumero = async (req, res) => {
+  try {
+    const { numero } = req.params;
+    const { housekeepingStatus, blockReason } = req.body;
+
+    const [existing] = await db
+      .select()
+      .from(roomsTable)
+      .where(eq(roomsTable.roomNumber, numero))
+      .limit(1);
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Chambre introuvable' });
+    }
+
+    if (housekeepingStatus === 'bloquee') {
+      if (!blockReason) {
+        return res.status(400).json({ error: 'Motif de blocage obligatoire' });
+      }
+      const validReasons = ['day_use', 'probleme_technique', 'depart_tardif', 'travaux'];
+      if (!validReasons.includes(blockReason)) {
+        return res.status(400).json({ error: 'Motif de blocage invalide' });
+      }
+    }
+
+    const authToken = req.headers.authorization || req.headers.Authorization;
+    const payload = await updateRoomStatusByNumero(
+      numero,
+      housekeepingStatus,
+      housekeepingStatus === 'bloquee' ? blockReason : null,
+      authToken
+    );
+
+    const room = {
+      id: existing.id || payload._id || payload.id || null,
+      roomNumber: existing.roomNumber || payload.numero || payload.roomNumber || null,
+      housekeepingStatus: payload.statut || payload.housekeepingStatus || housekeepingStatus,
+      blockReason: payload.motifBlocage || payload.blockReason || (housekeepingStatus === 'bloquee' ? blockReason : null)
+    };
+
+    return res.json({ message: 'Statut mis à jour', room });
+  } catch (err) {
+    const status = err?.status || 502;
+    const message = err instanceof Error ? err.message : 'Erreur interne du serveur';
+    return res.status(status).json({ error: message });
   }
 };
 

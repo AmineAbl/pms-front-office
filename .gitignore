@@ -9,5 +9,10 @@ build/
 Thumbs.db
 check-*.js
 list-*.js
+temp-*.js
+*verification*.js
+test_*.js
+.vscode/
 drizzle/*.sql
 drizzle/meta/
+".env" 

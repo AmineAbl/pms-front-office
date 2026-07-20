@@ -1,9 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { processCheckIn, getCheckInDetails, cancelCheckIn } = require('../controllers/checkinController');
+const auth = require('../middleware/auth');
+const { processCheckIn, getCheckInDetails, getProforma, cancelCheckIn } = require('../controllers/checkinController');
 
-router.get('/:bookingId', getCheckInDetails);
-router.post('/:bookingId', processCheckIn);
-router.delete('/:bookingId', cancelCheckIn);
+router.get('/:bookingId', auth, getCheckInDetails);
+router.get('/:bookingId/proforma', auth, getProforma);
+router.post('/:bookingId', auth, processCheckIn);
+router.delete('/:bookingId', auth, cancelCheckIn);
 
 module.exports = router;

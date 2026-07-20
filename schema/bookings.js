@@ -8,6 +8,7 @@ const bookings = pgTable('bookings', {
   customerId: uuid('customer_id').notNull().references(() => customers.id),
   roomId: uuid('room_id').notNull().references(() => rooms.id),
   status: varchar('status', { length: 20 }).notNull().default('option'),
+  locked: boolean('locked').notNull().default(false),
   optionExpiryDate: timestamp('option_expiry_date', { withTimezone: true }),
   checkInDate: date('check_in_date').notNull(),
   checkOutDate: date('check_out_date').notNull(),
