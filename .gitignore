@@ -16,3 +16,7 @@ test_*.js
 drizzle/*.sql
 drizzle/meta/
 ".env" 
+"node_modules/" 
+"payload.json" 
+"payload2.json" 
+"temp_payload.json" 
