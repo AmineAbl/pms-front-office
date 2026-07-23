@@ -8,6 +8,7 @@ const bookings = pgTable('bookings', {
   customerId: uuid('customer_id').notNull().references(() => customers.id),
   roomId: uuid('room_id').notNull().references(() => rooms.id),
   status: varchar('status', { length: 20 }).notNull().default('option'),
+  locked: boolean('locked').notNull().default(false),
   optionExpiryDate: timestamp('option_expiry_date', { withTimezone: true }),
   checkInDate: date('check_in_date').notNull(),
   checkOutDate: date('check_out_date').notNull(),
@@ -24,6 +25,8 @@ const bookings = pgTable('bookings', {
   specialRequests: text('special_requests'),
   cancellationPolicy: text('cancellation_policy'),
   marketSegment: varchar('market_segment', { length: 30 }).notNull(),
+  billToPartnerId: uuid('bill_to_partner_id').default(null), // ID du partenaire (service-tarification), pas de FK cross-service
+  billToLabel: varchar('bill_to_label', { length: 100 }).default(null), // nom affiché, dénormalisé pour éviter un appel réseau
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({

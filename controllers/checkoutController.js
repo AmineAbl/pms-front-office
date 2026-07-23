@@ -6,6 +6,7 @@ const customersTable = require('../schema/customers');
 const foliosTable = require('../schema/folios');
 const folioItemsTable = require('../schema/folioItems');
 const paymentsTable = require('../schema/payments');
+const housekeepingClient = require('../src/services/housekeepingClient');
 
 exports.processCheckOut = async (req, res) => {
   try {
@@ -42,20 +43,34 @@ exports.processCheckOut = async (req, res) => {
       totalCharges += folioTotal;
     }
 
-    if (!payments || payments.length === 0) {
+    const previousPayments = await db
+      .select({ amount: paymentsTable.amount })
+      .from(paymentsTable)
+      .where(eq(paymentsTable.bookingId, bookingId));
+
+    const alreadyPaid = previousPayments.reduce((sum, payment) => sum + parseFloat(payment.amount || 0), 0);
+    const balanceDue = totalCharges - alreadyPaid;
+
+    if ((!payments || payments.length === 0) && balanceDue !== 0) {
       return res.status(400).json({ error: 'Aucun mode de paiement sélectionné' });
     }
 
     const validMethods = ['cb', 'esp', 'chq', 'virement', 'debiteur'];
-    let totalPaid = 0;
-    for (const payment of payments) {
+    for (const payment of payments || []) {
       if (!validMethods.includes(payment.paymentMethod)) {
         return res.status(400).json({ error: `Mode de paiement invalide: ${payment.paymentMethod}` });
       }
-      totalPaid += payment.amount;
     }
 
-    for (const payment of payments) {
+    const requestedPaymentTotal = (payments || []).reduce((sum, payment) => sum + parseFloat(payment.amount || 0), 0);
+
+    if (Math.round(requestedPaymentTotal * 100) !== Math.round(balanceDue * 100)) {
+      return res.status(400).json({ error: 'Le montant des paiements ne correspond pas au solde dû.' });
+    }
+
+    // TODO: idempotence des paiements si retry après échec housekeeping
+    // Risk: if housekeeping.updateRoomStatusByNumero fails and checkout is retried, payments will be duplicated
+    for (const payment of payments || []) {
       const folio = folios.find(f => f.folioType === (payment.folioType || 'A'));
       if (!folio) {
         return res.status(400).json({ error: `Folio ${payment.folioType || 'A'} introuvable` });
@@ -74,9 +89,22 @@ exports.processCheckOut = async (req, res) => {
 
     const today = new Date().toISOString().slice(0, 10);
 
+    const [room] = await db
+      .select()
+      .from(roomsTable)
+      .where(eq(roomsTable.id, booking.roomId))
+      .limit(1);
+
+    // First try to notify housekeeping; if it fails we must not mark booking checked_out/locked
+    try {
+      await housekeepingClient.updateRoomStatusByNumero(room ? room.roomNumber : null, 'sale', null, req.headers.authorization);
+    } catch (err) {
+      return res.status(502).json({ error: `Impossible de synchroniser le statut de la chambre: ${err.message}` });
+    }
+
     await db
       .update(bookingsTable)
-      .set({ status: 'checked_out', actualCheckOut: today, updatedAt: new Date() })
+      .set({ status: 'checked_out', locked: true, actualCheckOut: today, updatedAt: new Date() })
       .where(eq(bookingsTable.id, bookingId));
 
     for (const folio of folios) {
@@ -86,19 +114,8 @@ exports.processCheckOut = async (req, res) => {
         .where(eq(foliosTable.id, folio.id));
     }
 
-    await db
-      .update(roomsTable)
-      .set({ housekeepingStatus: 'sale', blockReason: null, updatedAt: new Date() })
-      .where(eq(roomsTable.id, booking.roomId));
-
     const totalDeposit = parseFloat(booking.deposit) || 0;
-    const remainingBalance = totalCharges - totalPaid - totalDeposit;
-
-    const [room] = await db
-      .select()
-      .from(roomsTable)
-      .where(eq(roomsTable.id, booking.roomId))
-      .limit(1);
+    const remainingBalance = totalCharges - requestedPaymentTotal - totalDeposit;
 
     res.json({
       message: 'Check-out effectué avec succès',
@@ -111,7 +128,7 @@ exports.processCheckOut = async (req, res) => {
       summary: {
         totalCharges,
         deposit: totalDeposit,
-        totalPaid,
+        totalPaid: requestedPaymentTotal,
         remainingBalance
       }
     });
